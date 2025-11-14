@@ -1,17 +1,46 @@
-# Amplitude
+Amplitude is a product analytics platform that tracks user interactions and behavior across digital products and websites. It allows companies to understand how users engage with their features, identify trends, and make data-driven product decisions. The aim of this project is to capture usage data from the company’s Data School website. the goal is to provide the product and analytics teams with timely, accurate insights into user behavior, helping to optimize the learning experience, measure engagement, and inform strategic decisions.
 
-This project uses Amplitude's API to download yesterdats events data as a zip file it opens and extracts all of the hourly files within and saves it to a data within the repo
-
-see my excalidraw: https://excalidraw.com/#json=BUWpy15QGMY4tFz5NVAT8,-cze4Q3CEzeVVxx2xSEe6Q
+The pipeline achieves this by extracting event data from Amplitude via its REST API, storing it locally for backup, uploading it to an AWS S3 bucket, and ingesting it into Snowflake using Snowpipe for real-time analytics. The entire process is orchestrated with Kestra to ensure automation, monitoring, and scalability.
 
 
-![image](https://github.com/OttoRichardson/Amplitude/blob/main/images/amplitude.png)
+# SETTING UP
 
-# Amplitude Event Extraction & Unzip Pipeline
+Step 1: Clone the GitHub Repository Locally
+1. Open VS Code.
+2. Open a terminal in VS Code.
+3. Clone your repo:
 
-## Project Summary
+git clone https://github.com/your-username/your-repo.git
+cd your-repo
 
-This project automates the download and extraction of event data from **Amplitude** via its Export API. The pipeline saves the data as compressed `.gz` files inside a ZIP, decompresses them, and stores the resulting JSON files in a structured `data/` directory. All actions are logged for transparency and troubleshooting.
+Step 2: Create and Switch to a New Git Branch
+mkdir data
+mkdir env
+
+data/ → to store local backups of Amplitude exports.
+env/ → to store your virtual environment if you want it inside the repo (optional; can also use global environments).
+
+Step 4: Update .gitignore
+Make sure sensitive or large files are not committed. Add to your .gitignore:
+
+```
+Local data and environment
+data/
+env/
+*.env
+```
+
+Step 5: Create and Activate a Python Virtual Environment
+```
+python -m venv env
+.\env\Scripts\activate
+
+```
+# EXTRACT
+
+## Summary
+
+During the extract stage, the pipeline retrieves event data, saves it as compressed .gz files inside a ZIP, decompresses them, and organizes the resulting JSON files in a structured data/ directory. Key considerations include securely managing API credentials, respecting rate limits, defining the scope of events and time ranges, and ensuring robust logging for transparency and troubleshooting.
 
 ---
 
@@ -145,4 +174,50 @@ except Exception as e:
     logger.error(f"Failed to delete temp directory: {e}")
 
 ```
+
+# LOAD
+
+## Step 9: Load Data to AWS S3
+
+After extracting and processing event data from Amplitude, the next step is to **upload the JSON files to an S3 bucket** for storage, backup, or further processing. This step ensures that the data is accessible to other systems and keeps local storage clean.
+
+import os
+from dotenv import load_dotenv
+import boto3
+
+# Load environment variables for AWS credentials and bucket name
+load_dotenv()
+
+aws_access_key = os.getenv('AWS_ACCESS_KEY')
+AWS_ACCESS_SECRET_KEY = os.getenv('AWS_ACCESS_SECRET_KEY')
+bucket = os.getenv('AWS_BUCKET_NAME')
+
+# Create S3 client
+s3_client = boto3.client(
+    's3',
+    aws_access_key_id=aws_access_key,
+    aws_secret_access_key=AWS_ACCESS_SECRET_KEY
+)
+
+# Collect all filenames in the output folder
+files_to_upload = []
+for root, _, filenames in os.walk(output_folder):
+    files_to_upload.extend(filenames)
+
+
+for file in files_to_upload:
+    aws_file_destination = "python-import/" + file
+    output_path = os.path.join(output_folder, file)
+    s3_client.upload_file(output_path, bucket, aws_file_destination)
+    print(f"Uploaded: {file}")
+
+
+
+
+## Integrating Amplitude → S3 → Snowflake
+
+Using IAM User Access Keys
+Create an IAM user with a policy granting access to your S3 bucket
+
+
 
