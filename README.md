@@ -221,3 +221,6 @@ Create an IAM user with a policy granting access to your S3 bucket
 
 
 
+
+<img width="2804" height="808" alt="image" src="https://github.com/user-attachments/assets/bbdce17f-8d7b-47a4-9366-45dd1eee835f" />
+
