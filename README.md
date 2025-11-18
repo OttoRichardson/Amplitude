@@ -222,5 +222,39 @@ Create an IAM user with a policy granting access to your S3 bucket
 
 
 
-<img width="2804" height="808" alt="image" src="https://github.com/user-attachments/assets/bbdce17f-8d7b-47a4-9366-45dd1eee835f" />
+# Transformation
+
+## **Medallion Layers**
+
+### **Bronze — Raw**
+- JSON event files exported from Amplitude  
+- Stored in an S3 bucket  
+- Queried in Snowflake via **Storage Integration** and **Snowpipe**
+
+
+### **Silver — Base & Normalised Tables**
+- Flattened & structured data from raw JSON
+
+  
+- Stored Procedure #1 processes the Bronze layer  
+- Normalised tables created:
+  - `events`
+  - `sessions`
+  - `users`
+ <img width="2804" height="808" alt="image" src="https://github.com/user-attachments/assets/bbdce17f-8d7b-47a4-9366-45dd1eee835f" />
+
+- Future normalized tables planned:
+  - `locations`
+  - `devices`
+  <img width="2804" height="1888" alt="image" src="https://github.com/user-attachments/assets/17435448-67d9-4a94-a04f-2ccaef738b12" />
+
+
+### **Gold — Analytical Models**
+- Aggregated & behavioural insights  
+- Designed to answer product and UX questions  
+- Future analytic tables
+  - `Are people getting confused on the web page?`
+  - `Who is accessing our page and what company do they work for?`
+
+
 
