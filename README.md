@@ -231,6 +231,11 @@ Create an IAM user with a policy granting access to your S3 bucket
 - Stored in an S3 bucket  
 - Queried in Snowflake via **Storage Integration** and **Snowpipe**
 
+#### **Stream**
+- Tracks changes in raw JSON data  
+- Fires when new files arrive in raw table
+
+- 
 
 ### **Silver — Base & Normalised Tables**
 - Flattened & structured data from raw JSON
