@@ -232,19 +232,156 @@ Create an IAM user with a policy granting access to your S3 bucket
 - Queried in Snowflake via **Storage Integration** and **Snowpipe**
 
 #### **Stream**
-- Tracks changes in raw JSON data  
-- Fires when new files arrive in raw table
+- Tracks changes in raw JSON data Stores this in a table
+- Row are deleted once table is used in a DML query
 
-- 
+![Alt text](https://github.com/OttoRichardson/Amplitude/blob/main/images/raw.png)
+ 
 
 ### **Silver — Base & Normalised Tables**
 - Flattened & structured data from raw JSON
 
-  
-- Stored Procedure #1 processes the Bronze layer  
+![Alt text](https://github.com/OttoRichardson/Amplitude/blob/main/images/base.png)
+
+- Stored Procedure #1 processes the Bronze layer
+
+```
+CREATE OR REPLACE PROCEDURE AMPLITUDE_BASE_UPDATE()
+RETURNS varchar
+LANGUAGE SQL
+AS
+$$
+BEGIN
+CREATE OR REPLACE TEMP TABLE AMPLITUDE_EVENTS_NEW AS
+(SELECT * FROM AMPLITUDE_EVENTS_STREAM);
+
+INSERT INTO  AMPLITUDE_EVENTS_BASE1
+SELECT
+json_data:"$insert_id"::VARCHAR AS "$insert_id",
+json_data:"$insert_key"::VARCHAR AS    "$insert_key",
+json_data:"$schema"::VARCHAR AS    "$schema",
+json_data:"adid"::VARCHAR AS   "adid",
+json_data:"amplitude_attribution_ids"::VARCHAR AS  "amplitude_attribution_ids",
+json_data:"amplitude_event_type"::VARCHAR AS   "amplitude_event_type",
+json_data:"amplitude_id"::INTEGER AS   "amplitude_id",
+json_data:"app"::INTEGER AS    "app",
+json_data:"city"::VARCHAR AS   "city",
+json_data:"client_event_time"::VARCHAR AS  "client_event_time",
+json_data:"client_upload_time"::VARCHAR AS "client_upload_time",
+json_data:"country"::VARCHAR AS    "country",
+json_data:"data"::VARCHAR AS   "data",
+json_data:"data_type"::VARCHAR AS  "data_type",
+json_data:"device_brand"::VARCHAR AS   "device_brand",
+json_data:"device_carrier"::VARCHAR AS "device_carrier",
+json_data:"device_family"::VARCHAR AS  "device_family",
+json_data:"device_id"::VARCHAR AS  "device_id",
+json_data:"device_manufacturer"::VARCHAR AS    "device_manufacturer",
+json_data:"device_model"::VARCHAR AS   "device_model",
+json_data:"device_type"::VARCHAR AS    "device_type",
+json_data:"dma"::VARCHAR AS    "dma",
+json_data:"event_id"::INTEGER AS   "event_id",
+json_data:"event_properties"::VARCHAR AS   "event_properties",
+json_data:"event_time"::VARCHAR AS "event_time",
+json_data:"event_type"::VARCHAR AS "event_type",
+json_data:"global_user_properties"::VARCHAR AS "global_user_properties",
+json_data:"group_properties"::VARCHAR AS   "group_properties",
+json_data:"groups"::VARCHAR AS "groups",
+json_data:"idfa"::VARCHAR AS   "idfa",
+json_data:"ip_address"::VARCHAR AS "ip_address",
+json_data:"is_attribution_event"::VARCHAR AS   "is_attribution_event",
+json_data:"language"::VARCHAR AS   "language",
+json_data:"library"::VARCHAR AS    "library",
+json_data:"location_lat"::VARCHAR AS   "location_lat",
+json_data:"location_lng"::VARCHAR AS   "location_lng",
+json_data:"os_name"::VARCHAR AS    "os_name",
+json_data:"os_version"::VARCHAR AS "os_version",
+json_data:"partner_id"::VARCHAR AS "partner_id",
+json_data:"paying"::VARCHAR AS "paying",
+json_data:"plan"::VARCHAR AS   "plan",
+json_data:"platform"::VARCHAR AS   "platform",
+json_data:"processed_time"::VARCHAR AS "processed_time",
+json_data:"region"::VARCHAR AS "region",
+json_data:"sample_rate"::VARCHAR AS    "sample_rate",
+json_data:"server_received_time"::VARCHAR AS   "server_received_time",
+json_data:"server_upload_time"::VARCHAR AS "server_upload_time",
+json_data:"session_id"::INTEGER AS "session_id",
+json_data:"source_id"::VARCHAR AS  "source_id",
+json_data:"start_version"::VARCHAR AS  "start_version",
+json_data:"user_creation_time"::VARCHAR AS "user_creation_time",
+json_data:"user_id"::VARCHAR AS    "user_id",
+json_data:"user_properties"::VARCHAR AS    "user_properties",
+json_data:"uuid"::VARCHAR AS   "uuid",
+json_data:"version_name"::VARCHAR AS   "version_name"
+FROM AMPLITUDE_EVENTS_NEW ;
+
+
+INSERT INTO  AMPLITUDE_EVENTS_BASE2
+WITH CTE AS 
+(
+SELECT
+
+json_data:session_id AS session_id,
+json_data:event_id AS event_id,
+f.key as column_name,
+value
+FROM  AMPLITUDE_EVENTS_NEW as t,
+LATERAL FLATTEN(input => t.json_data:"event_properties") as f
+)
+SELECT 
+*
+FROM  CTE
+PIVOT (MAX(value) FOR COLUMN_NAME IN (ANY ORDER BY COLUMN_NAME ))
+
+;
+
+
+RETURN 'BASE TABLES UPDATED';
+
+END
+$$
+;
+```
+
+TEMP TABLE used here as once it is used it removes the rows in the stream however now they are in the Temp Table can be used in both Base1 and Base2 Steps to update this table before the Temp Table is deleted ar the end of the procedure.
+
+- Task - triggered from stream
+
+```
+CREATE OR REPLACE TASK AMPLITUDE_BASE_UPDATE_TASK
+warehouse = DATASCHOOL_WH
+when system$stream_has_data('AMPLITUDE_EVENTS_STREAM')
+as 
+call AMPLITUDE_BASE_UPDATE();
+```
+
+
+
+### Considerations for building Normalised tables, how does the archetecture work?
+
+
+![Alt text](https://github.com/OttoRichardson/Amplitude/blob/main/images/diagram.png)
+
 - Normalised tables created:
   - `events`
-  - `sessions`
+```
+CREATE OR REPLACE TABLE AMPLITUDE_EVENTS AS (
+SELECT 
+"event_type",
+"event_id",
+"event_time",
+"session_id",
+"'[Amplitude] Page Counter'" AS Page_Counter, 
+REPLACE("'[Amplitude] Page Title'",'"','') AS Page_Title,
+REPLACE("'[Amplitude] Page URL'",'"','') AS URL
+FROM AMPLITUDE_EVENTS_BASE1 B1
+JOIN AMPLITUDE_EVENTS_BASE2 B2
+ON B1."session_id" = B2.SESSION_ID AND  B1."event_id" = B2.event_id
+
+ORDER BY 
+"session_id" ASC, "event_id" ASC
+)
+```
+  - `sessions` 
   - `users`
  <img width="2804" height="808" alt="image" src="https://github.com/user-attachments/assets/bbdce17f-8d7b-47a4-9366-45dd1eee835f" />
 
@@ -253,13 +390,130 @@ Create an IAM user with a policy granting access to your S3 bucket
   - `devices`
   <img width="2804" height="1888" alt="image" src="https://github.com/user-attachments/assets/17435448-67d9-4a94-a04f-2ccaef738b12" />
 
+### Sensitive Data Handling
+- IP addresses & geolocations stored separately  
+- Follows data protection best practices
+
+- Stored Procedure
+```
+CREATE OR REPLACE PROCEDURE AMPLITUDE_NORMALISED_UPDATE()
+RETURNS varchar
+LANGUAGE SQL
+AS
+
+$$
+BEGIN
+
+INSERT INTO AMPLITUDE_EVENTS
+SELECT 
+"event_type",
+"event_id",
+"event_time",
+"session_id",
+"'[Amplitude] Page Counter'" AS Page_Counter, 
+REPLACE("'[Amplitude] Page Title'",'"','') AS Page_Title,
+REPLACE("'[Amplitude] Page URL'",'"','') AS URL
+FROM AMPLITUDE_EVENTS_BASE1 B1
+JOIN AMPLITUDE_EVENTS_BASE2 B2
+ON B1."session_id" = B2.SESSION_ID AND  B1."event_id" = B2.event_id
+;
+
+
+MERGE INTO AMPLITUDE_USERS AS D USING
+(
+SELECT 
+MAX("user_id") AS email,
+"amplitude_id" AS USER_ID
+FROM 
+AMPLITUDE_EVENTS_BASE1
+GROUP BY  "amplitude_id"
+)
+ AS C 
+
+on D.USER_ID = C.USER_ID
+
+WHEN MATCHED AND C.email IS NOT NULL THEN 
+    UPDATE SET D.email = C.email
+WHEN NOT MATCHED THEN
+    INSERT (email, USER_ID)
+    values
+    (C.email, C.USER_ID)
+;
+
+INSERT INTO AMPLITUDE_SESSION
+SELECT 
+"amplitude_id"as user_id,
+"session_id",
+"device_id"
+FROM
+AMPLITUDE_EVENTS_BASE1
+;
+
+RETURN 'NORMALISED TABLES UPDATED';
+
+END
+$$
+;
+```
+
+Events and Session table updates are both insert statments as they will always contain new data
+
+Note: there should be a where cause using a parameter to check that the event data on the data is greater than the previous last event date. so that we cant insert duplicate data. 
+
+User table is a merge, as we might want to update a user if we have found their email 
+```
+WHEN MATCHED AND C.email IS NOT NULL THEN 
+    UPDATE SET D.email = C.email
+```
+
+- Chained Task
+
+```
+CREATE OR REPLACE TASK AMPLITUDE_NORMALISED_UPDATE_TASK
+warehouse = DATASCHOOL_WH
+AFTER AMPLITUDE_BASE_UPDATE_TASK
+as 
+call AMPLITUDE_NORMALISED_UPDATE();
+```
+
+## ⚙️ Automation (Streams & Tasks)
+
+### **Stream**
+- Tracks changes in raw JSON data  
+- Fires when new files arrive in raw table
+
+### **Task 1 → Update Base Table**
+- Runs SP #1  
+- Transforms Bronze → Silver
+
+### **Task 2 → Update Normalised Tables**
+- Chained Task Runs SP #2  
+- Transforms Silver → More Silver
+
+
 
 ### **Gold — Analytical Models**
 - Aggregated & behavioural insights  
 - Designed to answer product and UX questions  
 - Future analytic tables
-  - `Are people getting confused on the web page?`
-  - `Who is accessing our page and what company do they work for?`
+  - ` User Journey Analysis & Detecting Website Issues**`
+    - Is a user making repeated clicks?  
+    - Are users returning to the **same page** frequently?  
+    - Are users stuck in loops (A → B → A patterns)?
+
+investigate events table, use window functions to look at paths
+
+  - `Identifying Company Traffic (IP + Email Matching)`
+
+Logic for Company Identification
+1. Extract email domain  
+2. Remove common domains (`gmail`, `yahoo`, etc.)  
+3. Map unique domain → **suspected company**  
+4. If multiple users share same IP → infer office network  
+5. Produce table:
+   - `user_id`  
+   - `suspected_company`  
+   - reasoning (domain/IP match)
 
 
 
