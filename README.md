@@ -643,4 +643,128 @@ The type of event performed
 
 ```
 
+## Using dbt-codegen for Best Practices
 
+we are leveraging the [`dbt-codegen`](https://github.com/dbt-labs/dbt-codegen) package in our project.
+
+### Setup
+
+- **Installed as a package** in `packages.yml
+      - package: dbt-labs/codegen
+        version: 0.14.0
+
+We use the generate_model_import_ctes macro from dbt-codegen to standardize how our soucres are brought in as CTEs into our models.
+
+We use the generate_model_yaml macro to Automatically lists all columns in the table for documentation in _models.yml file
+
+
+##
+base layer model 
+follows the same sql as in snowflake however in DBT, we are using **Jinja templating** to reference tables
+
+```
+select *
+from {{ source('RAW_AMPLITUDE', 'AMPLITUDE_EVENTS_RAW_PYTHON') }}
+```
+When moving to a different environment (e.g., dev → prod) Only the sources.yml file needs to be updated with the appropriate database/schema. All models referencing the source via {{ source(...) }} will automatically point to the correct tables.
+
+## Intermediade layer
+
+this follows the same structure as in Snowflake but using CTEs for imputs as dbt best practice and with **Jinja templating** to reference tables
+
+## Mart
+
+created two tables off from event data 
+
+1. to capture more granular information on users’ paths through the website
+
+**Use window functions** to propagate metrics like `Page_Counter` across rows for each session:
+
+```
+LAST_VALUE(Page_Counter IGNORE NULLS)
+OVER (
+    PARTITION BY session_id 
+    ORDER BY event_time, event_id
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+) AS Page_Counter
+
+```
+
+
+2. detect web issues
+
+Here i focused on Detecting Repeated Clicks. To do this without over-aggregating wanted to create a repeat_click_flag by identifing events where event_id remained the same but event_time changed
+
+```
+WITH event_changes AS (
+    SELECT
+        session_id,
+        event_id,
+        event_time,
+        LAG(event_time) OVER (PARTITION BY session_id ORDER BY event_time, event_id) AS prev_event_time,
+        LAG(event_id) OVER (PARTITION BY session_id ORDER BY event_time, event_id) AS prev_event_id
+    FROM {{ ref('int_amplitude__events') }}
+),
+time_changed AS (
+    SELECT
+        session_id,
+        event_id, 
+        event_time
+    FROM event_changes
+    WHERE event_time != prev_event_time
+      AND prev_event_id = event_id
+),
+joined AS (
+    SELECT
+        e.*,
+        CASE 
+            WHEN t.event_id IS NOT NULL THEN 'Y'
+            ELSE 'N'
+        END AS repeat_click_flag
+    FROM {{ ref('int_amplitude__events') }} e
+    LEFT JOIN time_changed t
+        ON e.session_id = t.session_id
+       AND e.event_id = t.event_id
+)
+SELECT *
+FROM joined
+ORDER BY event_id
+```
+
+### Observations:
+
+Only about 6 instances where event_id didn’t change but event_time did.
+
+Next steps:
+
+If these are actual repeated clicks, continue analysis.
+
+If they are data errors, create a generic DBT test to flag duplicates.
+
+```
+{% test duplicate_events(model) %}
+WITH event_changes AS (
+    SELECT
+        session_id,
+        event_id,
+        event_time,
+        LAG(event_time) OVER (PARTITION BY session_id ORDER BY event_time, event_id) AS prev_event_time,
+        LAG(event_id) OVER (PARTITION BY session_id ORDER BY event_time, event_id) AS prev_event_id
+    FROM {{ model }}
+),
+time_changed AS (
+    SELECT
+        session_id,
+        event_id
+    FROM event_changes
+    WHERE event_time != prev_event_time
+      AND prev_event_id = event_id
+)
+SELECT
+    session_id
+FROM time_changed
+GROUP BY session_id
+HAVING COUNT(event_id) > 1
+
+{% endtest %}
+```
