@@ -516,4 +516,131 @@ Logic for Company Identification
    - reasoning (domain/IP match)
 
 
+# Refactoring Amplitude SQL into DBT
+
+## Overview
+This project focuses on refactoring existing SQL for Amplitude events into a DBT workflow. The goal is to implement best practices in DBT
+
+## DAG plan
+
+![Alt text](https://github.com/OttoRichardson/Amplitude/blob/main/images/DAG.png)
+
+- **DBT Workflow Changes**: Refactoring may change the way we work, especially with staging and intermediate layers.
+   
+- **Staging Layer**: The  `base_1` is staging and `base_2` table becomes an intermediate table, as staging should have no transformations.
+
+- **Avoid Direct Joins**: We avoid joining `base_1` to `base_2` directly. Instead, include `base_1` as CET and join back to create a `base_2` with full data.
+
+
+## sources yaml
+
+```
+yaml
+version: 2
+
+sources:
+  - name: RAW_AMPLITUDE
+    database: TIL_DATA_ENGINEERING
+    schema: OTTORICHARDSON_STAGING
+    tables:
+      - name: AMPLITUDE_EVENTS_RAW_PYTHON
+        columns:
+          - name: JSON_DATA
+            data_type: variant
+            description: "Raw JSON payload from Amplitude"
+            data_tests:
+              - not_null
+      - name: AMPLITUDE_EVENTS_RAW_PYTHON_FRESHNESS
+        loaded_at_field: server_upload_time_ts
+        freshness:
+          warn_after: {count: 24, period: hour}
+```
+
+Freshness cannot be tested on the main raw table, so a separate view (AMPLITUDE_EVENTS_RAW_PYTHON_FRESHNESS) is created for monitoring data recency.
+
+This checks for delays up to one day and issues warnings if data is stale.
+
+
+## staging
+
+
+
+### Project Configuration
+In project YAML we define staging materializations and tags
+```
+    amplitude:
+      +materialized: view
+      schema: staging
+      tags: ["daily"]
+```
+The daily tag allows this model to be referenced in daily refreshes.
+
+
+## model yaml
+
+define some tests and take descriptions form docblocks
+
+```
+      - name: event_id
+        data_type: number
+        description: "{{ doc('event_id') }}"
+        data_tests:
+          - not_null:
+              severity: warn
+          - unique:
+              severity: warn
+
+      - name: event_type
+        data_type: varchar
+        description: "{{ doc('event_type') }}"
+        data_tests:
+          - accepted_values:
+              severity: warn
+              arguments:
+                values: [
+                  'video_loaded',
+                  '[Amplitude] Form Started',
+                  'video_started',
+                  'session_start',
+                  '[Amplitude] Element Changed',
+                  'video_finished',
+                  '[Amplitude] Page Viewed',
+                  '[Amplitude] Element Clicked',
+                  'Activate Modal Search',
+                  'video_paused',
+                  '[Amplitude] Form Submitted',
+                  'Data Skills Video',
+                  '[Amplitude] File Downloaded'
+                ]
+```
+
+to refeance the description dynamicly using jinja print statment need to create descriptions in a doc blocks md file, see format
+
+```
+{% docs event_time %}
+The timestamp when the event occurred, as recorded in Amplitude.
+{% enddocs %}
+
+{% docs event_type %}
+The type of event performed
+
+          | Event Type |
+          |------------|
+          | video_loaded |
+          | [Amplitude] Form Started |
+          | video_started |
+          | session_start |
+          | [Amplitude] Element Changed |
+          | video_finished |
+          | [Amplitude] Page Viewed |
+          | [Amplitude] Element Clicked |
+          | Activate Modal Search |
+          | video_paused |
+          | [Amplitude] Form Submitted |
+          | Data Skills Video |
+          | [Amplitude] File Downloaded |
+{% enddocs %}
+
+```
+
 
