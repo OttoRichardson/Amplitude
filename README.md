@@ -693,7 +693,9 @@ OVER (
 
 2. detect web issues
 
-Here i focused on Detecting Repeated Clicks. To do this without over-aggregating wanted to create a repeat_click_flag by identifing events where event_id remained the same but event_time changed
+Here, the focus was on detecting repeated clicks. To do this without over-aggregating, a repeat_click_flag was created by identifying events where the event_id remained the same but the event_time changed.
+
+![Alt text](https://github.com/OttoRichardson/Amplitude/blob/main/images/repeate%20click.png)
 
 ```
 WITH event_changes AS (
@@ -768,6 +770,11 @@ HAVING COUNT(event_id) > 1
 
 {% endtest %}
 ```
+
+## FINAL DAG
+
+![Alt text](https://github.com/OttoRichardson/Amplitude/blob/main/images/DBT%20DAG.png)
+
 
 ## Orchestration
 
