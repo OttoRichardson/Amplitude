@@ -768,3 +768,27 @@ HAVING COUNT(event_id) > 1
 
 {% endtest %}
 ```
+
+## Orchestration
+
+To manage and orchestrate our Amplitude-related tables in the marts layer, we added a **tag configuration** in the project YAML:
+
+```
+    marts:
+      amplitude:
+        +materialized: table
+        query_tag: dbt_marts
+        tags: amplitude
+```
+
+we can build all Amplitude tables and their upstream dependencies with:
+```
+dbt build --select +tag:amplitude
+```
+the + selects all upstream dependencies of the tagged models.
+
+The build command not only creates the models but also runs all associated tests.
+
+Orchestration
+
+This command can be scheduled to run daily, ensuring that all Amplitude mart tables are refreshed automatically.
